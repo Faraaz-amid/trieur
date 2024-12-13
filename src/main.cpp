@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include "rgb_lcd.h"
-
+/*
 // Initialisation de l'écran LCD RGB
 rgb_lcd lcd;
 
@@ -75,3 +75,4 @@ void loop() {
   lcd.setCursor(0, 1);
   lcd.printf("BP0:%d BP2:%d", Valeur1, Valeur3);
 }
+*/
