@@ -18,7 +18,7 @@ int Valeur3;                           // Variable pour stocker l'état du bouto
 int antihorraires = 26;                // Broche pour contrôler le sens antihoraire du moteur.
 int pwmA = 27;                         // Broche pour générer le signal PWM pour la vitesse du moteur.
 
-int frequence = 25000;                 // Définition de la fréquence du signal PWM (25 kHz).
+int frequence = 35000;                 // Définition de la fréquence du signal PWM (25 kHz).
 int canal0 = 0;                        // Canal PWM utilisé pour le signal de contrôle moteur.
 int resolution = 11;                   // Résolution du signal PWM (2^11 = 2048 niveaux de précision).
 
