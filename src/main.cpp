@@ -3,25 +3,30 @@
 #include <SPI.h>                        // Inclusion de la bibliothèque pour la communication SPI (Serial Peripheral Interface).
 #include "Adafruit_TCS34725.h"          // Inclusion de la bibliothèque pour le capteur de couleur TCS34725.
 
+
+
 Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);  // Initialisation du capteur TCS34725 avec des valeurs spécifiques de temps d'intégration et de gain.
 
 rgb_lcd lcd;                          // Création d'un objet pour l'écran LCD RGB.
 
 int BP0 = 0;                           // Définition de la broche pour le bouton 0 (sens horaire).
 int BP1 = 2;                           // Définition de la broche pour le bouton 1 (non utilisé ici).
-int BP2 = 12;                          // Définition de la broche pour le bouton 2 (sens antihoraire).
-
-int Valeur1;                           // Variable pour stocker l'état du bouton BP0.
-int Valeur2;                           // Variable pour stocker l'état du bouton BP1 (non utilisé ici).
-int Valeur3;                           // Variable pour stocker l'état du bouton BP2.
+int BP2 = 12;  
+int pot = 33;                          // Définition de la broche pour le potentiomètre.
+int lecture_pot;                       // Variable pour la lecture du potentiomètre.
 
 int antihorraires = 26;                // Broche pour contrôler le sens antihoraire du moteur.
-int pwmA = 27;                         // Broche pour générer le signal PWM pour la vitesse du moteur.
+int pwmA = 27;                         // Broche PWM pour le moteur.
 
-int frequence = 35000;                 // Définition de la fréquence du signal PWM (25 kHz).
-int canal0 = 0;                        // Canal PWM utilisé pour le signal de contrôle moteur.
+int servo = 13;                        // Broche pour le servomoteur.
+
+int frequence = 50;                    // Définition de la fréquence du signal PWM (50 Hz).
+int canal0 = 0;                        // Canal PWM pour moteur.
+int canal2 = 2;                        // Canal PWM pour servomoteur.
 int resolution = 11;                   // Résolution du signal PWM (2^11 = 2048 niveaux de précision).
-
+int Valeur2;
+int Valeur1;
+int Valeur3;
 void setup()
 {
   Serial.begin(115200);                // Initialisation de la communication série à 115200 bps pour le débogage.
@@ -30,14 +35,18 @@ void setup()
   pinMode(BP1, INPUT_PULLUP);          // Configurer la broche BP1 comme entrée avec pull-up interne.
   pinMode(BP2, INPUT_PULLUP);          // Configurer la broche BP2 comme entrée avec pull-up interne.
 
-  pinMode(antihorraires, OUTPUT);      // Configurer la broche pour le sens antihoraire comme sortie.
+  pinMode(antihorraires, OUTPUT);      // Configurer la broche du moteur dans le sens antihoraire.
+  pinMode(servo, OUTPUT);              // Configurer la broche du servomoteur.
 
   Wire1.setPins(15, 5);                // Définir les broches SDA (15) et SCL (5) pour la communication I2C.
   lcd.begin(16, 2, LCD_5x8DOTS, Wire1); // Initialisation de l'écran LCD avec 16 colonnes et 2 lignes.
   lcd.setColor(BLUE);                  // Définir la couleur de fond de l'écran à bleu.
 
-  ledcSetup(canal0, frequence, resolution); // Configuration du canal PWM avec la fréquence et la résolution.
-  ledcAttachPin(pwmA, canal0);             // Attacher la broche PWM au canal pour contrôler la vitesse du moteur.
+  ledcSetup(canal0, frequence, resolution); // Configuration du canal PWM pour le moteur.
+  ledcAttachPin(pwmA, canal0);             
+  
+  ledcSetup(canal2, frequence, resolution); // Configuration du canal PWM pour le servomoteur.
+  ledcAttachPin(servo, canal2);             
 
   ledcWrite(canal0, 0);                  // Arrêter le moteur au démarrage (rapport cyclique à 0%).
 
@@ -57,6 +66,14 @@ void loop()
   Valeur1 = digitalRead(BP0);           // Lire l'état du bouton BP0 (sens horaire).
   Valeur2 = digitalRead(BP1);           // Lire l'état du bouton BP1 (non utilisé ici).
   Valeur3 = digitalRead(BP2);           // Lire l'état du bouton BP2 (sens antihoraire).
+
+  lecture_pot = analogRead(pot);        // Lire la valeur du potentiomètre.
+  lcd.setCursor(0, 1);
+  lcd.printf("pot=%d", lecture_pot); 
+  if (lecture_pot>2047)
+  {
+    lecture_pot=2047;
+  } 
 
   if (Valeur1 == LOW)                   // Si BP0 est appuyé (circuit fermé).
   {
@@ -110,5 +127,6 @@ void loop()
   blue = blue > 255 ? 255 : blue;
   lcd.setRGB((int)red, (int)green, (int)blue); // Changer la couleur d'arrière-plan de l'écran LCD.
 
-  delay(500);                           // Attendre 500 ms pour stabiliser la lecture des données du capteur.
+  delay(500);                           // Pause pour éviter une surcharge du microcontrôleur.
+  ledcWrite(canal2, lecture_pot);       // Utilisation de la valeur du potentiomètre pour ajuster la vitesse du servomoteur.
 }
