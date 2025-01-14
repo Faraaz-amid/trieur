@@ -1,132 +1,140 @@
-#include <Arduino.h>                  // Inclusion de la bibliothèque principale Arduino pour la gestion des E/S.
-#include "rgb_lcd.h"                   // Inclusion de la bibliothèque pour le contrôle de l'écran LCD RGB.
-#include <SPI.h>                        // Inclusion de la bibliothèque pour la communication SPI (Serial Peripheral Interface).
-#include "Adafruit_TCS34725.h"          // Inclusion de la bibliothèque pour le capteur de couleur TCS34725.
+#include <Arduino.h>
+#include "rgb_lcd.h"
+#include <SPI.h>
+#include "Adafruit_TCS34725.h"
+#include "MFRC522_I2C.h"
+#include <CAN.h>
+
+MFRC522 mfrc522(0x28);  // Création de l'instance MFRC522 pour le lecteur RFID.
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);  // Initialisation du capteur de couleur TCS34725.
+rgb_lcd lcd;  // Création de l'objet LCD.
+
+int BP0 = 0;  // Bouton 0 (sens horaire).
+int BP1 = 2;  // Bouton 1 (non utilisé).
+int BP2 = 12; // Bouton 2 (sens antihoraire).
+int pot = 33; // Potentiomètre.
+int lecture_pot; // Variable pour la lecture du potentiomètre.
+
+int antihorraires = 26; // Broche moteur sens antihoraire.
+int pwmA = 27; // Broche PWM moteur.
+
+int frequence = 50;  // Fréquence PWM.
+int canal0 = 0;  // Canal PWM moteur.
+int resolution = 11;  // Résolution PWM.
+
+byte authorizedUID[] = {0xE9, 0x44, 0x20, 0x7A};  // UID du badge autorisé.
+unsigned long previousMillis = 0; // Variable pour stocker le temps écoulé.
+bool moteurActif = false;  // Variable pour vérifier si le moteur est actif.
+unsigned long moteurTime = 0; // Durée pendant laquelle le moteur reste allumé.
 
 
 
-Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_614MS, TCS34725_GAIN_1X);  // Initialisation du capteur TCS34725 avec des valeurs spécifiques de temps d'intégration et de gain.
+void setup() {
+  Serial.begin(115200);  // Initialisation de la communication série.
 
-rgb_lcd lcd;                          // Création d'un objet pour l'écran LCD RGB.
+  pinMode(BP0, INPUT_PULLUP);
+  pinMode(BP1, INPUT_PULLUP);
+  pinMode(BP2, INPUT_PULLUP);
+  pinMode(antihorraires, OUTPUT);
 
-int BP0 = 0;                           // Définition de la broche pour le bouton 0 (sens horaire).
-int BP1 = 2;                           // Définition de la broche pour le bouton 1 (non utilisé ici).
-int BP2 = 12;  
-int pot = 33;                          // Définition de la broche pour le potentiomètre.
-int lecture_pot;                       // Variable pour la lecture du potentiomètre.
+  Wire1.setPins(15, 5); // Communication I2C.
+  lcd.begin(16, 2, LCD_5x8DOTS, Wire1); // Initialisation de l'écran LCD.
+  lcd.setColor(BLUE);  // Couleur de fond de l'écran.
 
-int antihorraires = 26;                // Broche pour contrôler le sens antihoraire du moteur.
-int pwmA = 27;                         // Broche PWM pour le moteur.
+  ledcSetup(canal0, frequence, resolution); // Configuration PWM moteur.
+  ledcAttachPin(pwmA, canal0);
 
-int servo = 13;                        // Broche pour le servomoteur.
+  ledcWrite(canal0, 0);  // Arrêter le moteur au démarrage.
 
-int frequence = 50;                    // Définition de la fréquence du signal PWM (50 Hz).
-int canal0 = 0;                        // Canal PWM pour moteur.
-int canal2 = 2;                        // Canal PWM pour servomoteur.
-int resolution = 11;                   // Résolution du signal PWM (2^11 = 2048 niveaux de précision).
-int Valeur2;
-int Valeur1;
-int Valeur3;
-void setup()
-{
-  Serial.begin(115200);                // Initialisation de la communication série à 115200 bps pour le débogage.
+  Serial.println("CAN OBD-II VIN reader");
+  if (!CAN.begin(500E3)) {
+    Serial.println("Starting CAN failed!");
+    while (1);
+  }
 
-  pinMode(BP0, INPUT_PULLUP);          // Configurer la broche BP0 comme entrée avec pull-up interne.
-  pinMode(BP1, INPUT_PULLUP);          // Configurer la broche BP1 comme entrée avec pull-up interne.
-  pinMode(BP2, INPUT_PULLUP);          // Configurer la broche BP2 comme entrée avec pull-up interne.
-
-  pinMode(antihorraires, OUTPUT);      // Configurer la broche du moteur dans le sens antihoraire.
-  pinMode(servo, OUTPUT);              // Configurer la broche du servomoteur.
-
-  Wire1.setPins(15, 5);                // Définir les broches SDA (15) et SCL (5) pour la communication I2C.
-  lcd.begin(16, 2, LCD_5x8DOTS, Wire1); // Initialisation de l'écran LCD avec 16 colonnes et 2 lignes.
-  lcd.setColor(BLUE);                  // Définir la couleur de fond de l'écran à bleu.
-
-  ledcSetup(canal0, frequence, resolution); // Configuration du canal PWM pour le moteur.
-  ledcAttachPin(pwmA, canal0);             
+  // add filter to only receive the CAN bus ID's we care about
+  if (useStandardAddressing) {
+    CAN.filter(0x7e8);
+  } else {
+    CAN.filterExtended(0x18daf110);
+  }
   
-  ledcSetup(canal2, frequence, resolution); // Configuration du canal PWM pour le servomoteur.
-  ledcAttachPin(servo, canal2);             
-
-  ledcWrite(canal0, 0);                  // Arrêter le moteur au démarrage (rapport cyclique à 0%).
-
-  if (tcs.begin())                      // Initialiser le capteur TCS34725.
-  {
-    Serial.println("Found sensor");     // Afficher un message si le capteur est détecté.
+  if (tcs.begin()) {
+    Serial.println("Found sensor");
+  } else {
+    Serial.println("No TCS34725 found ... check your connections");
+    while (1);
   }
-  else
-  {
-    Serial.println("No TCS34725 found ... check your connections"); // Afficher un message d'erreur si le capteur n'est pas trouvé.
-    while (1);                           // Bloquer le programme si le capteur est absent.
-  }
+
+  mfrc522.PCD_Init();
 }
 
-void loop()
-{
-  Valeur1 = digitalRead(BP0);           // Lire l'état du bouton BP0 (sens horaire).
-  Valeur2 = digitalRead(BP1);           // Lire l'état du bouton BP1 (non utilisé ici).
-  Valeur3 = digitalRead(BP2);           // Lire l'état du bouton BP2 (sens antihoraire).
 
-  lecture_pot = analogRead(pot);        // Lire la valeur du potentiomètre.
-  lcd.setCursor(0, 1);
-  lcd.printf("pot=%d", lecture_pot); 
-  if (lecture_pot>2047)
-  {
-    lecture_pot=2047;
-  } 
 
-  if (Valeur1 == LOW)                   // Si BP0 est appuyé (circuit fermé).
-  {
-    digitalWrite(antihorraires, LOW);   // Désactiver le sens antihoraire.
-    ledcWrite(canal0, 600);             // Réglage du moteur à une vitesse de 50% (rapport cyclique à 600).
-    lcd.setCursor(0, 0);                // Définir le curseur LCD à la première ligne.
-    lcd.print("Sens Horaire   ");        // Afficher "Sens Horaire" sur l'écran LCD.
-  }
-  else if (Valeur3 == LOW)              // Si BP2 est appuyé (circuit fermé).
-  {
-    digitalWrite(antihorraires, HIGH);  // Activer le sens antihoraire.
-    ledcWrite(canal0, 600);             // Réglage du moteur à une vitesse de 50% (rapport cyclique à 600).
-    lcd.setCursor(0, 0);                // Définir le curseur LCD à la première ligne.
-    lcd.print("Sens Antihor.  ");        // Afficher "Sens Antihoraire" sur l'écran LCD.
-  }
-  else                                  // Si aucun bouton n'est appuyé.
-  {
-    ledcWrite(canal0, 0);               // Arrêter le moteur.
-    lcd.setCursor(0, 0);                // Définir le curseur LCD à la première ligne.
-    lcd.print("Moteur Arret   ");        // Afficher "Moteur Arrêt" sur l'écran LCD.
+
+void loop() {
+  if (!mfrc522.PICC_IsNewCardPresent() || !mfrc522.PICC_ReadCardSerial()) {
+    delay(200);
+    return;
   }
 
-  uint16_t r, g, b, c;                  // Variables pour stocker les valeurs des couleurs (rouge, vert, bleu et lumière).
-  tcs.getRawData(&r, &g, &b, &c);       // Lecture des données du capteur de couleur.
-
-  float sum = c;                        // Normalisation des données du capteur.
-  float red = r / sum * 255.0;          // Calcul de la composante rouge normalisée.
-  float green = g / sum * 255.0;        // Calcul de la composante verte normalisée.
-  float blue = b / sum * 255.0;         // Calcul de la composante bleue normalisée.
-
-  lcd.setCursor(0, 1);                  // Définir le curseur LCD à la deuxième ligne.
-  if (red > green && red > blue)        // Si le rouge est la couleur dominante.
-  {
-    lcd.print("Couleur: Rouge ");        // Afficher "Couleur: Rouge" sur l'écran LCD.
-  }
-  else if (green > red && green > blue) // Si le vert est la couleur dominante.
-  {
-    lcd.print("Couleur: Vert  ");        // Afficher "Couleur: Vert" sur l'écran LCD.
-  }
-  else if (blue > red && blue > green)  // Si le bleu est la couleur dominante.
-  {
-    lcd.print("Couleur: Bleu  ");        // Afficher "Couleur: Bleu" sur l'écran LCD.
-  }
-  else                                  // Si aucune couleur n'est dominante.
-  {
-    lcd.print("Couleur: Incon.");        // Afficher "Couleur: Inconnue" sur l'écran LCD.
+  // Comparer l'UID lu avec l'UID autorisé.
+  bool isAuthorized = true;
+  for (byte i = 0; i < sizeof(authorizedUID); i++) {
+    if (mfrc522.uid.uidByte[i] != authorizedUID[i]) {
+      isAuthorized = false;
+      break;
+    }
   }
 
-  red = red > 255 ? 255 : red;          // S'assurer que les valeurs des couleurs ne dépassent pas 255.
-  green = green > 255 ? 255 : green;
-  blue = blue > 255 ? 255 : blue;
-  lcd.setRGB((int)red, (int)green, (int)blue); // Changer la couleur d'arrière-plan de l'écran LCD.
+  if (isAuthorized && !moteurActif) {
+    // Si le badge est autorisé et que le moteur n'est pas déjà actif
+    ledcWrite(canal0, 1800);  // Augmenter la vitesse du moteur à 1800 (environ 90% de la vitesse max).
+    lcd.setCursor(0, 0);
+    lcd.print("Moteur ON    ");
+    
+    // Démarrer un compte à rebours de 7 secondes pour éteindre le moteur
+    moteurTime = millis();
+    moteurActif = true;
+  }
 
-  delay(500);                           // Pause pour éviter une surcharge du microcontrôleur.
-  ledcWrite(canal2, lecture_pot);       // Utilisation de la valeur du potentiomètre pour ajuster la vitesse du servomoteur.
-}
+  if (moteurActif) {
+    // Afficher la durée restante du moteur sur l'écran LCD
+    unsigned long elapsedTime = millis() - moteurTime;
+    unsigned long remainingTime = 7000 - elapsedTime;
+    if (remainingTime > 0) {
+      lcd.setCursor(0, 1);
+      lcd.printf("Temps restant: %lu", remainingTime / 1000);  // Afficher les secondes restantes
+    } else {
+      // Après 7 secondes, éteindre le moteur et revenir en mode détection
+      ledcWrite(canal0, 0);  // Moteur éteint
+      lcd.setCursor(0, 1);
+      lcd.print("Moteur OFF   ");
+      moteurActif = false;
+      delay(500);  // Attendre un peu avant de revenir en mode détection.
+    }
+  }
+
+  // Contrôle de la direction du moteur avec les boutons BP0 et BP2.
+  int Valeur1 = digitalRead(BP0); // Sens horaire.
+  int Valeur2 = digitalRead(BP1); // Non utilisé.
+  int Valeur3 = digitalRead(BP2); // Sens antihoraire.
+
+  if (Valeur1 == LOW) {
+    digitalWrite(antihorraires, LOW);
+    ledcWrite(canal0, 600); // Sens horaire.
+    lcd.setCursor(0, 0);
+    lcd.print("Sens Horaire");
+  } else if (Valeur3 == LOW) {
+    digitalWrite(antihorraires, HIGH);
+    ledcWrite(canal0, 600); // Sens antihoraire.
+    lcd.setCursor(0, 0);
+    lcd.print("Sens Antihor.");
+  } else {
+    ledcWrite(canal0, 0); // Arrêt du moteur.
+    lcd.setCursor(0, 0);
+    lcd.print("Moteur Arret");
+  }
+
+  delay(200);  // Petit délai pour éviter de surcharger le processeur.
+} 
